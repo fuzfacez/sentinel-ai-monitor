@@ -9,7 +9,7 @@ from sqlalchemy import select
 from app.api import router
 from app.config import settings
 from app.db import SessionLocal
-from app.models import Incident, Monitor
+from app.models import Check, Incident, Monitor
 from app.monitoring import dispatch_due_checks
 from app.security import require_admin
 
@@ -36,5 +36,8 @@ async def dashboard(request: Request, _: None = Depends(require_admin)):
     async with SessionLocal() as db:
         monitors = list((await db.execute(select(Monitor).order_by(Monitor.id))).scalars())
         incidents = list((await db.execute(select(Incident).order_by(Incident.started_at.desc()).limit(20))).scalars())
-    return templates.TemplateResponse(request, "dashboard.html", {"monitors": monitors, "incidents": incidents, "token": request.query_params.get("token", ""), "app_name": settings.app_name})
-
+        recent_checks = list((await db.execute(select(Check).order_by(Check.checked_at.desc()))).scalars())
+        latest_checks = {}
+        for check in recent_checks:
+            latest_checks.setdefault(check.monitor_id, check)
+    return templates.TemplateResponse(request, "dashboard.html", {"monitors": monitors, "incidents": incidents, "latest_checks": latest_checks, "token": request.query_params.get("token", ""), "app_name": settings.app_name})

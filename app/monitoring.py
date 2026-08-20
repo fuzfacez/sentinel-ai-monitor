@@ -12,20 +12,33 @@ from app.telegram import incident_message, recovery_message, send_telegram
 
 log = logging.getLogger(__name__)
 
+DEFAULT_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (compatible; SentinelAI/1.0; +website-monitor)",
+    "Accept": "text/html,application/json;q=0.9,*/*;q=0.8",
+}
+
+def response_failure(response: httpx.Response, monitor: Monitor) -> str | None:
+    if response.status_code != monitor.expected_status:
+        return f"Получен HTTP {response.status_code}, ожидался {monitor.expected_status}"
+    expected_text = (monitor.expected_text or "").strip()
+    if expected_text and expected_text.casefold() not in response.text.casefold():
+        return f"HTTP {response.status_code}, но текст '{expected_text}' не найден в ответе"
+    return None
+
 async def execute_check(monitor: Monitor) -> Check:
     started = time.perf_counter()
     code = elapsed = None
     error = excerpt = None
     status = "down"
     try:
+        request_headers = {**DEFAULT_HEADERS, **(monitor.headers or {})}
         async with httpx.AsyncClient(follow_redirects=True, timeout=monitor.timeout_seconds) as client:
-            response = await client.request(monitor.method, monitor.url, headers=monitor.headers or {}, content=monitor.body)
+            response = await client.request(monitor.method, monitor.url, headers=request_headers, content=monitor.body)
             elapsed = round((time.perf_counter() - started) * 1000)
             code = response.status_code
             excerpt = response.text[:2000]
-            ok = code == monitor.expected_status and (not monitor.expected_text or monitor.expected_text in response.text)
-            status = "up" if ok else "down"
-            if not ok: error = f"Expected HTTP {monitor.expected_status}" + (f" and text '{monitor.expected_text}'" if monitor.expected_text else "")
+            error = response_failure(response, monitor)
+            status = "up" if error is None else "down"
     except Exception as exc:
         elapsed = round((time.perf_counter() - started) * 1000)
         error = f"{type(exc).__name__}: {exc}"[:2000]
@@ -71,4 +84,3 @@ async def dispatch_due_checks():
             await db.commit()
     if ids:
         await asyncio.gather(*(check_monitor(mid) for mid in ids), return_exceptions=True)
-
