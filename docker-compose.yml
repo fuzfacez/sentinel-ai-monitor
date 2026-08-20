@@ -19,7 +19,7 @@ services:
     restart: unless-stopped
     env_file: .env
     ports:
-      - "8000:8000"
+      - "${BIND_ADDRESS:-0.0.0.0}:8000:8000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -33,4 +33,3 @@ services:
 
 volumes:
   postgres_data:
-
